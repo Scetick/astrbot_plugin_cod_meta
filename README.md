@@ -1,4 +1,6 @@
-# COD 各代配枪与梯队查询（AstrBot）
+# 使命召唤 & 战地 配枪与梯队榜查询插件（astrbot_plugin_cod_meta）
+
+> 适配游戏：使命召唤（Call of Duty / COD，包括黑色行动7、黑色行动6、现代战争III、现代战争II、战区2）及战地6（BF6）。战区3目前尚未接入，待 MeetYourMeta 网页数据支持后再适配。
 
 本插件从 [MeetYourMeta](https://meetyourmeta.com) 获取武器梯队与配装数据。网站作者：[SoraYjy 的 Bilibili 个人空间](https://space.bilibili.com/19091214)。
 
