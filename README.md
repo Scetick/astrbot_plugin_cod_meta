@@ -1,6 +1,10 @@
 # COD 各代配枪与梯队查询（AstrBot）
 
-AstrBot 插件，通过 MeetYourMeta 的武器列表 API 查询梯队枪械和枪械配装。插件以文本形式返回结果，不需要启动浏览器或安装 Playwright。
+本插件从 [MeetYourMeta](https://meetyourmeta.com) 获取武器梯队与配装数据。网站作者：[SoraYjy 的 Bilibili 个人空间](https://space.bilibili.com/19091214)。
+
+这是社区制作的非官方 AstrBot 插件，通过 MeetYourMeta 提供的接口查询梯队武器和枪械配装，并以文本形式返回结果。插件无需启动浏览器或安装 Playwright。
+
+如网站作者对数据使用、署名或项目发布有任何意见，请通过 GitHub 项目页面联系我，我会及时沟通并按要求处理。
 
 ## 当前支持
 
@@ -68,9 +72,11 @@ AstrBot 插件，通过 MeetYourMeta 的武器列表 API 查询梯队枪械和�
 
 ## 数据与故障说明
 
-- 数据来自 MeetYourMeta API，API 更新后查询结果会随之变化。
-- 插件在运行期间缓存每个版本首次取得的数据；重载插件后缓存清空。
-- API 不可访问、响应格式变化或站点暂时故障时，插件会返回查询失败提示。请检查 AstrBot 主机的网络连接及插件日志。
+- 数据来自 MeetYourMeta API。
+- 每个版本和模式分别持久缓存 API 响应。缓存未满 6 小时时直接读取本地数据；超过 6 小时后，下一次相关查询才请求新数据并更新缓存。机器人重启后缓存仍保留。
+- 并发查询通过异步锁合并，避免缓存过期时同时发出重复请求。
+- 刷新失败时若有旧缓存，会继续使用旧数据；没有可用缓存时会返回查询失败提示。请检查 AstrBot 主机网络和插件日志。
+- 缓存文件保存在插件目录的 `cache/` 子目录；不要将缓存文件提交到 GitHub。
 - `requirements.txt` 不包含第三方依赖；无需执行 `playwright install`。
 
 ## 文件结构
@@ -80,5 +86,6 @@ astrbot_plugin_cod_meta/
 ├── main.py
 ├── metadata.yaml
 ├── requirements.txt
+├── .gitignore
 └── README.md
 ```

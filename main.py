@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
+from pathlib import Path
 from typing import AsyncGenerator
 from urllib.request import Request, urlopen
 
@@ -15,6 +17,7 @@ from astrbot.api.star import Context, Star, register
 
 @register("astrbot_plugin_cod_meta", "Developer", "COD各代配枪与梯队榜查询", "1.2.0")
 class CodMetaPlugin(Star):
+    CACHE_TTL_SECONDS = 6 * 60 * 60
     DEFAULT_VERSION = "22"
     VERSION_NAMES = {
         "22": "黑色行动7（BO7）",
@@ -50,6 +53,8 @@ class CodMetaPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
         self._cache: dict[str, dict] = {}
+        self._cache_lock = asyncio.Lock()
+        self._cache_dir = Path(__file__).resolve().parent / "cache"
 
     @classmethod
     def _version(cls, token: str) -> str | None:
@@ -60,7 +65,23 @@ class CodMetaPlugin(Star):
 
     async def _fetch(self, version: str, mode: str = "MULTIPLAY") -> dict:
         cache_key = f"{version}:{mode if version == 'bf6' else ''}"
-        if cache_key not in self._cache:
+        safe_key = cache_key.replace(":", "_")
+        cache_path = self._cache_dir / f"{safe_key}.json"
+        async with self._cache_lock:
+            record = self._cache.get(cache_key)
+            if record is None:
+                try:
+                    raw = await asyncio.to_thread(cache_path.read_text, encoding="utf-8")
+                    candidate = json.loads(raw)
+                    if isinstance(candidate.get("data"), dict):
+                        record = candidate
+                        self._cache[cache_key] = record
+                except (OSError, ValueError, AttributeError):
+                    record = None
+
+            if record and time.time() - record.get("fetched_at", 0) < self.CACHE_TTL_SECONDS:
+                return record["data"]
+
             url = self.API_URLS[version]
             if version == "bf6":
                 url += f"?mode={mode}"
@@ -70,21 +91,29 @@ class CodMetaPlugin(Star):
                 with urlopen(request, timeout=20) as response:
                     return json.loads(response.read().decode("utf-8"))
 
-            result = await asyncio.to_thread(get_json)
-            if result.get("code") != "A00001" or not isinstance(result.get("data"), dict):
-                raise ValueError("站点 API 返回了无法识别的数据。")
-            payload = result["data"]
-            if version == "19":
-                builds = payload.get("list")
-                if not isinstance(builds, list):
-                    raise ValueError("MWII 清单 API 响应中缺少 data.list。")
-                payload = {"list": builds}
-            if version == "19":
-                if not isinstance(payload.get("list"), list):
+            try:
+                result = await asyncio.to_thread(get_json)
+                if result.get("code") != "A00001" or not isinstance(result.get("data"), dict):
+                    raise ValueError("站点 API 返回了无法识别的数据。")
+                payload = result["data"]
+                if version == "19" and not isinstance(payload.get("list"), list):
                     raise ValueError("MWII API 响应中缺少 data.list。")
-                payload = {"list": payload["list"]}
-            self._cache[cache_key] = payload
-        return self._cache[cache_key]
+                fresh = {"fetched_at": time.time(), "data": payload}
+                self._cache_dir.mkdir(parents=True, exist_ok=True)
+                temp_path = cache_path.with_suffix(".tmp")
+                await asyncio.to_thread(
+                    temp_path.write_text,
+                    json.dumps(fresh, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                await asyncio.to_thread(temp_path.replace, cache_path)
+                self._cache[cache_key] = fresh
+                return payload
+            except Exception:
+                if record:
+                    logger.warning("API refresh failed; using stale cache for %s", cache_key)
+                    return record["data"]
+                raise
 
     @staticmethod
     def _plain_name(value: str) -> str:
