@@ -198,7 +198,7 @@ class CodMetaPlugin(Star):
             else:
                 gun = " ".join(args)
                 text = await self._gun_text(version, gun, mode)
-            yield event.plain_result(text)
+            yield event.plain_result(f"{text}\n\n数据来源：MeetYourMeta")
         except ValueError as exc:
             yield event.plain_result(str(exc))
         except Exception as exc:
