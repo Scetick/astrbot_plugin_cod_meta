@@ -1,6 +1,6 @@
 name: astrbot_plugin_cod_meta
 display_name: COD各代配枪与梯队榜查询
 desc: 查询 MeetYourMeta COD 梯队武器与枪械配件方案
-version: 1.4.0
+version: 1.5.0
 author: Scetick
 repo: "https://github.com/Scetick/astrbot_plugin_cod_meta"
