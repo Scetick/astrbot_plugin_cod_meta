@@ -1,5 +1,7 @@
 # COD 各代配枪与梯队查询（AstrBot）
 
+所有数据均取自meetyourmeta.com，作者https://space.bilibili.com/19091214
+
 AstrBot 插件，通过 MeetYourMeta 的武器列表 API 查询梯队枪械和枪械配装。插件以文本形式返回结果，不需要启动浏览器或安装 Playwright。
 
 ## 当前支持
