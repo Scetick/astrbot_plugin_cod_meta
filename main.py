@@ -15,7 +15,7 @@ from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.star import Context, Star, register
 
 
-@register("astrbot_plugin_cod_meta", "Developer", "COD各代配枪与梯队榜查询", "1.2.0")
+@register("astrbot_plugin_cod_meta", "Scetick", "COD各代配枪与梯队榜查询", "1.4.0")
 class CodMetaPlugin(Star):
     CACHE_TTL_SECONDS = 6 * 60 * 60
     DEFAULT_VERSION = "22"
@@ -54,7 +54,7 @@ class CodMetaPlugin(Star):
         super().__init__(context)
         self._cache: dict[str, dict] = {}
         self._cache_lock = asyncio.Lock()
-        self._cache_dir = Path(__file__).resolve().parent / "cache"
+        self._cache_dir = Path("data/plugin_data/astrbot_plugin_cod_meta")
 
     @classmethod
     def _version(cls, token: str) -> str | None:
