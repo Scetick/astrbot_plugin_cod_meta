@@ -15,7 +15,7 @@ from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.star import Context, Star, register
 
 
-@register("astrbot_plugin_cod_meta", "Scetick", "COD各代配枪与梯队榜查询", "1.5.0")
+@register("astrbot_plugin_cod_meta", "Scetick", "COD各代配枪与梯队榜查询", "1.5.2")
 class CodMetaPlugin(Star):
     CACHE_TTL_SECONDS = 6 * 60 * 60
     DEFAULT_VERSION = "22"
