@@ -364,6 +364,18 @@ class CodMetaPlugin(Star):
         async for result in self._handle(event):
             yield result
 
+    @filter.command("codhelp")
+    async def codhelp(self, event: AstrMessageEvent) -> AsyncGenerator[MessageChain, None]:
+        yield event.plain_result(
+            "【COD 配枪查询帮助】\n"
+            "查询格式：\n"
+            "/cod 版本 梯队或枪名（例：/cod 23 t0、/cod dmz X-58夜神）\n"
+            "/cod版本 梯队或枪名（例：/cod23 t0、/cod19 枪名）\n"
+            "也可直接使用：/wz2、/wz3、/dmz、/bf6；战地6大逃杀：/战地6 redsec t0\n"
+            "不写版本时使用个人默认版本；/cod t0 会列出 T0 至 T1 梯队。\n"
+            "设置个人默认：/setcod 版本；清除设置：/setcod reset"
+        )
+
     @filter.command("setcod")
     async def setcod(self, event: AstrMessageEvent) -> AsyncGenerator[MessageChain, None]:
         args = event.message_str.strip().split()
