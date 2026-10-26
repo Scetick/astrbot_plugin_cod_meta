@@ -23,6 +23,7 @@ class CodMetaPlugin(Star):
         "22": "黑色行动7",
         "21": "黑色行动6", "20": "现代战争III",
         "19": "现代战争II", "bf6": "战地6", "wz2": "战区2",
+        "bf6_redsec": "战地6 REDSEC",
         "cod23": "现代战争4", "wz3": "战区3",
         "dmz": "DMZ",
     }
@@ -33,6 +34,7 @@ class CodMetaPlugin(Star):
         "战地": "bf6", "bf6": "bf6", "wz2": "wz2", "战区2": "wz2",
         "cod23": "cod23", "23": "cod23", "mw4": "cod23", "mwiv": "cod23",
         "wz3": "wz3", "战区3": "wz3", "dmz": "dmz",
+        "bf6_redsec": "bf6_redsec",
     }
     TIERS = {f"t{i}" for i in range(5)} | {"t0.5", "t1.5", "t2.5", "t3.5"}
     PARTS = {
@@ -61,6 +63,8 @@ class CodMetaPlugin(Star):
         self._cache: dict[str, dict] = {}
         self._cache_lock = asyncio.Lock()
         self._cache_dir = Path("data/plugin_data/astrbot_plugin_cod_meta")
+        self._user_defaults: dict[str, str] | None = None
+        self._user_defaults_lock = asyncio.Lock()
 
     @classmethod
     def _version(cls, token: str) -> str | None:
@@ -68,6 +72,72 @@ class CodMetaPlugin(Star):
         if value in cls.VERSION_NAMES:
             return value
         return cls.ALIASES.get(value)
+
+    @staticmethod
+    def _user_scope_key(event: AstrMessageEvent) -> str | None:
+        try:
+            user_id = event.get_sender_id()
+            group_id = event.get_group_id()
+            platform = event.get_platform_name()
+        except (AttributeError, TypeError):
+            return None
+        if user_id is None or str(user_id).strip() == "":
+            return None
+        user_id = str(user_id)
+        platform = str(platform or "unknown")
+        if group_id is not None and str(group_id).strip() != "":
+            return f"{platform}:group:{group_id}:user:{user_id}"
+        return f"{platform}:private:user:{user_id}"
+
+    async def _load_user_defaults_locked(self) -> dict[str, str]:
+        if self._user_defaults is not None:
+            return self._user_defaults
+        path = self._cache_dir / "user_defaults.json"
+        try:
+            raw = await asyncio.to_thread(path.read_text, encoding="utf-8")
+            parsed = json.loads(raw)
+            values = parsed.get("preferences", {}) if isinstance(parsed, dict) else {}
+            self._user_defaults = {
+                str(key): str(version)
+                for key, version in values.items()
+                if isinstance(key, str) and version in self.VERSION_NAMES
+            } if isinstance(values, dict) else {}
+        except (OSError, ValueError, TypeError):
+            self._user_defaults = {}
+        return self._user_defaults
+
+    async def _get_user_default(self, event: AstrMessageEvent) -> str | None:
+        key = self._user_scope_key(event)
+        if key is None:
+            return None
+        async with self._user_defaults_lock:
+            preferences = await self._load_user_defaults_locked()
+            return preferences.get(key)
+
+    async def _save_user_defaults_locked(self) -> None:
+        path = self._cache_dir / "user_defaults.json"
+        await asyncio.to_thread(self._cache_dir.mkdir, parents=True, exist_ok=True)
+        temp_path = path.with_suffix(".tmp")
+        payload = {"preferences": self._user_defaults or {}}
+        await asyncio.to_thread(
+            temp_path.write_text,
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        await asyncio.to_thread(temp_path.replace, path)
+
+    async def _set_user_default(self, event: AstrMessageEvent, version: str | None) -> bool:
+        key = self._user_scope_key(event)
+        if key is None:
+            return False
+        async with self._user_defaults_lock:
+            preferences = await self._load_user_defaults_locked()
+            if version is None:
+                preferences.pop(key, None)
+            else:
+                preferences[key] = version
+            await self._save_user_defaults_locked()
+        return True
 
     async def _fetch(self, version: str, mode: str = "MULTIPLAY") -> dict:
         cache_key = f"{version}:{mode if version == 'bf6' else ''}"
@@ -234,7 +304,11 @@ class CodMetaPlugin(Star):
         if args and args[0].lower() in self.UNSUPPORTED:
             yield event.plain_result("该版本/模式目前尚未接入 MeetYourMeta API，暂不支持查询。")
             return
-        version = forced_version or str(self.config.get("default_version", self.DEFAULT_VERSION))
+        personal_default = None
+        if forced_version is None:
+            personal_default = await self._get_user_default(event)
+        version = (forced_version or personal_default or
+                   str(self.config.get("default_version", self.DEFAULT_VERSION)))
         default_mode = "MULTIPLAY"
         if version == "bf6_redsec":
             version, default_mode = "bf6", "REDSEC"
@@ -289,6 +363,60 @@ class CodMetaPlugin(Star):
     async def cod(self, event: AstrMessageEvent) -> AsyncGenerator[MessageChain, None]:
         async for result in self._handle(event):
             yield result
+
+    @filter.command("setcod")
+    async def setcod(self, event: AstrMessageEvent) -> AsyncGenerator[MessageChain, None]:
+        args = event.message_str.strip().split()
+        if args and args[0].lower().lstrip("/") == "setcod":
+            args = args[1:]
+        if not args:
+            yield event.plain_result(
+                "用法：/setcod 版本（例如 /setcod dmz、/setcod 23、/setcod bf6 redsec）；"
+                "使用 /setcod reset 清除当前会话的个人设置。"
+            )
+            return
+
+        if args[0].lower() in {"reset", "重置", "清除"}:
+            try:
+                saved = await self._set_user_default(event, None)
+            except OSError:
+                logger.exception("Failed to clear personal COD default")
+                yield event.plain_result("保存设置失败，请检查 AstrBot 数据目录的写入权限。")
+                return
+            if not saved:
+                yield event.plain_result("无法读取发送者 QQ 号，未能清除个人默认版本。")
+                return
+            yield event.plain_result("已清除当前会话的个人默认版本，将使用插件全局默认设置。")
+            return
+
+        if len(args) == 2 and args[0].lower() == "bf6" and args[1].lower() in {
+            "redsec", "大逃杀", "吃鸡",
+        }:
+            version = "bf6_redsec"
+        elif len(args) == 1:
+            version = self._version(args[0])
+        else:
+            version = None
+
+        if version not in self.VERSION_NAMES:
+            yield event.plain_result(
+                "无法识别版本。可选：COD19、COD20、COD21、COD22、COD23、WZ2、WZ3、DMZ、"
+                "BF6（或 BF6 REDSEC）。"
+            )
+            return
+        try:
+            saved = await self._set_user_default(event, version)
+        except OSError:
+            logger.exception("Failed to save personal COD default")
+            yield event.plain_result("保存设置失败，请检查 AstrBot 数据目录的写入权限。")
+            return
+        if not saved:
+            yield event.plain_result("无法读取发送者 QQ 号，未能保存个人默认版本。")
+            return
+        scope = "当前群聊与本人" if event.get_group_id() else "当前 QQ 私聊"
+        yield event.plain_result(
+            f"已为{scope}设置默认版本：{self.VERSION_NAMES[version]}。"
+        )
 
     @filter.command("cod22")
     async def cod22(self, event: AstrMessageEvent) -> AsyncGenerator[MessageChain, None]:
