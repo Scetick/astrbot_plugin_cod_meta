@@ -210,6 +210,9 @@ class CodMetaPlugin(Star):
             tier = build.get("rankStr")
             tier_text = f"{tier} · " if tier else ""
             lines.append(f"\n方案{index}：{tier_text}{build.get('rangeStr', '')}")
+            price = build.get("price")
+            if version == "dmz" and price not in (None, ""):
+                lines.append(f"价格：{price}")
             for key, label in self.PARTS.items():
                 part = build.get(key)
                 if isinstance(part, dict) and part.get("name"):
