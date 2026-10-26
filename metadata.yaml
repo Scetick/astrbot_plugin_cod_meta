@@ -1,6 +1,17 @@
 name: astrbot_plugin_cod_meta
-display_name: COD各代配枪与梯队榜查询
-desc: 查询 MeetYourMeta COD 梯队武器与枪械配件方案
+display_name: 使命召唤（COD）与战地6 配枪和梯队榜查询
+short_desc: 查询使命召唤（Call of Duty / COD）、战地6及战区2的武器梯队与枪械配装。
+desc: 查询使命召唤（Call of Duty，简称 COD）各代、战区2、战区3、DMZ及战地6的武器梯队、枪械配件方案和配装码。当前支持 COD19 至 COD23、WZ2、WZ3、DMZ、BF6（含 REDSEC），数据来源于 MeetYourMeta。可使用 /cod、/bf6、/wz2、/wz3、/dmz 查询。
 version: 1.6.0
 author: Scetick
 repo: "https://github.com/Scetick/astrbot_plugin_cod_meta"
+tags:
+  - 使命召唤
+  - Call of Duty
+  - COD
+  - 配枪
+  - 配装
+  - 梯队榜
+  - 战地6
+  - 战区2
+  - 战区3
