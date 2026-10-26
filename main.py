@@ -10,32 +10,37 @@ from pathlib import Path
 from typing import AsyncGenerator
 from urllib.request import Request, urlopen
 
-from astrbot.api import logger
+from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.star import Context, Star, register
 
 
-@register("astrbot_plugin_cod_meta", "Scetick", "COD各代配枪与梯队榜查询", "1.5.0")
+@register("astrbot_plugin_cod_meta", "Scetick", "COD各代配枪与梯队榜查询", "1.6.0")
 class CodMetaPlugin(Star):
     CACHE_TTL_SECONDS = 6 * 60 * 60
-    DEFAULT_VERSION = "22"
+    DEFAULT_VERSION = "cod23"
     VERSION_NAMES = {
-        "22": "黑色行动7（BO7）",
-        "21": "黑色行动6（BO6）", "20": "现代战争III（MWIII）",
-        "19": "现代战争II（MWII）", "bf6": "战地6", "wz2": "战区2（WZ2）",
+        "22": "黑色行动7",
+        "21": "黑色行动6", "20": "现代战争III",
+        "19": "现代战争II", "bf6": "战地6", "wz2": "战区2",
+        "cod23": "现代战争4", "wz3": "战区3",
+        "dmz": "DMZ",
     }
     ALIASES = {
         "cod22": "22", "bo7": "22", "cod21": "21", "bo6": "21",
         "cod20": "20", "mwiii": "20", "mw3": "20",
         "cod19": "19", "mwii": "19", "mw2": "19", "战地6": "bf6",
         "战地": "bf6", "bf6": "bf6", "wz2": "wz2", "战区2": "wz2",
+        "cod23": "cod23", "23": "cod23", "mw4": "cod23", "mwiv": "cod23",
+        "wz3": "wz3", "战区3": "wz3", "dmz": "dmz",
     }
     TIERS = {f"t{i}" for i in range(5)} | {"t0.5", "t1.5", "t2.5", "t3.5"}
     PARTS = {
         "muzzle": "枪口", "barrel": "枪管", "laser": "镭射", "optic": "瞄具",
         "stock": "枪托", "underbarrel": "下挂", "magazine": "弹匣",
         "rearGrip": "后握把", "comb": "枪梳", "stockPad": "枪托垫",
-        "fireMods": "射击改装",
+        "fireMods": "射击改装", "ammunition": "弹药", "bolt": "枪机",
+        "guard": "护木", "trigger": "扳机", "apex": "超限改装",
     }
     API_URLS = {
         "22": "https://www.meetyourmeta.com/wzguides/v1/apis/bo7/gunsmith/weapon_list",
@@ -44,14 +49,15 @@ class CodMetaPlugin(Star):
         "19": "https://www.meetyourmeta.com/wzguides/v1/apis/mwii_gunsmith/list?page=1&size=1000",
         "bf6": "https://www.meetyourmeta.com/wzguides/v1/apis/bf6/gunsmith/weapon_list",
         "wz2": "https://www.meetyourmeta.com/wzguides/v1/apis/wz2_gunsmith/weapon_list",
+        "cod23": "https://www.meetyourmeta.com/wzguides/v1/apis/mw4/gunsmith/list?season=0&mode=MP&page=1&size=1000&likesDesc=true",
+        "wz3": "https://www.meetyourmeta.com/wzguides/v1/apis/mw4/gunsmith/list?season=0&mode=WZ&page=1&size=1000&likesDesc=true",
+        "dmz": "https://www.meetyourmeta.com/wzguides/v1/apis/mw4/gunsmith/list?season=0&mode=DMZ&page=1&size=1000&likesDesc=true",
     }
-    UNSUPPORTED = {
-        "cod23", "mwiv", "mw4", "dmz", "wz3", "战区3",
-        "三角洲", "delta",
-    }
+    UNSUPPORTED = {"三角洲", "delta"}
 
-    def __init__(self, context: Context):
+    def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
+        self.config = config
         self._cache: dict[str, dict] = {}
         self._cache_lock = asyncio.Lock()
         self._cache_dir = Path("data/plugin_data/astrbot_plugin_cod_meta")
@@ -82,7 +88,9 @@ class CodMetaPlugin(Star):
             if record and time.time() - record.get("fetched_at", 0) < self.CACHE_TTL_SECONDS:
                 return record["data"]
 
-            url = self.API_URLS[version]
+            url = self.API_URLS.get(version)
+            if not url:
+                raise ValueError(f"{self.VERSION_NAMES.get(version, version)} 的武器列表接口尚未配置。")
             if version == "bf6":
                 url += f"?mode={mode}"
 
@@ -96,8 +104,8 @@ class CodMetaPlugin(Star):
                 if result.get("code") != "A00001" or not isinstance(result.get("data"), dict):
                     raise ValueError("站点 API 返回了无法识别的数据。")
                 payload = result["data"]
-                if version == "19" and not isinstance(payload.get("list"), list):
-                    raise ValueError("MWII API 响应中缺少 data.list。")
+                if version in {"19", "cod23", "wz3", "dmz"} and not isinstance(payload.get("list"), list):
+                    raise ValueError(f"{self.VERSION_NAMES[version]} API 响应中缺少 data.list。")
                 fresh = {"fetched_at": time.time(), "data": payload}
                 self._cache_dir.mkdir(parents=True, exist_ok=True)
                 temp_path = cache_path.with_suffix(".tmp")
@@ -121,13 +129,36 @@ class CodMetaPlugin(Star):
 
     async def _tier_text(self, version: str, tier: str, mode: str = "MULTIPLAY") -> str:
         data = await self._fetch(version, mode)
-        if version == "19":
+        if tier.casefold() == "t0":
+            ranked: dict[str, list[str]] = {}
+            if version in {"19", "cod23", "wz3", "dmz"}:
+                for item in data.get("list", []):
+                    rank = str(item.get("rankStr") or "").casefold()
+                    name = item.get("name")
+                    if rank.startswith("t") and rank[1:].replace(".", "", 1).isdigit():
+                        if float(rank[1:]) <= 1 and name:
+                            ranked.setdefault(rank, []).append(name)
+            else:
+                for key, weapons in data.items():
+                    rank = str(key).casefold()
+                    if (rank.startswith("t") and rank[1:].replace(".", "", 1).isdigit()
+                            and float(rank[1:]) <= 1 and isinstance(weapons, list)):
+                        ranked[rank] = [weapon.get("name", "") for weapon in weapons
+                                        if isinstance(weapon, dict) and weapon.get("name")]
+            tiers = sorted(ranked, key=lambda item: float(item[1:]))
+            tiers = [item for item in tiers if ranked[item]]
+            if not tiers:
+                raise ValueError(f"【{self.VERSION_NAMES[version]}】没有 T0 至 T1 梯队数据。")
+            return (f"【{self.VERSION_NAMES[version]} · T0-T1 梯队榜】\n" + "\n".join(
+                f"{item.upper()}：" + "、".join(dict.fromkeys(ranked[item])) for item in tiers
+            ))
+        if version in {"19", "cod23", "wz3", "dmz"}:
             builds = [build for build in data["list"]
                       if (build.get("rankStr") or "").casefold() == tier.casefold()]
             if not builds:
                 raise ValueError(f"【{self.VERSION_NAMES[version]}】没有 {tier.upper()} 梯队数据。")
             return f"【{self.VERSION_NAMES[version]} · {tier.upper()}】\n" + "、".join(
-                build.get("name", "") for build in builds if build.get("name"))
+                dict.fromkeys(build.get("name", "") for build in builds if build.get("name")))
         weapons = data.get(tier, [])
         if not weapons:
             raise ValueError(f"【{self.VERSION_NAMES[version]}】没有 {tier.upper()} 梯队数据。")
@@ -140,12 +171,18 @@ class CodMetaPlugin(Star):
                    if isinstance(values, list) and key.lower().startswith("t")
                    for weapon in values if isinstance(weapon, dict)]
         weapons += [weapon for weapon in data.get("unranked", []) if isinstance(weapon, dict)]
-        if version == "19":
+        if version in {"19", "cod23", "wz3", "dmz"}:
             weapons += [build for build in data.get("list", []) if isinstance(build, dict)]
         weapon = next((item for item in weapons if name.casefold() in
-                       (item.get("name", "") + " " + item.get("nameEng", "")).casefold()), None)
+                       (str(item.get("name") or "") + " " +
+                        str(item.get("nameEng") or "")).casefold()), None)
         if not weapon:
             raise ValueError(f"在【{self.VERSION_NAMES[version]}】中没有找到枪械：{name}")
+        if version in {"cod23", "wz3", "dmz"}:
+            matching = [item for item in data.get("list", [])
+                        if name.casefold() in (str(item.get("name") or "") + " " +
+                                                str(item.get("nameEng") or "")).casefold()]
+            return self._format_loadouts(version, matching)
         builds = weapon.get("gunsmithList") or []
         if not builds:
             raise ValueError(f"{weapon.get('name')} 暂无已收录的配装。")
@@ -164,18 +201,45 @@ class CodMetaPlugin(Star):
                 lines.append(f"备注：{build['comment']}")
         return "\n".join(lines)
 
+    def _format_loadouts(self, version: str, builds: list[dict]) -> str:
+        if not builds:
+            raise ValueError("没有找到匹配的配装记录。")
+        weapon_name = builds[0].get("name", "未知武器")
+        lines = [f"【{self.VERSION_NAMES[version]}】{weapon_name} 配装"]
+        for index, build in enumerate(builds, 1):
+            tier = build.get("rankStr")
+            tier_text = f"{tier} · " if tier else ""
+            lines.append(f"\n方案{index}：{tier_text}{build.get('rangeStr', '')}")
+            for key, label in self.PARTS.items():
+                part = build.get(key)
+                if isinstance(part, dict) and part.get("name"):
+                    suffix = "（可选）" if part.get("optional") is True else ""
+                    lines.append(f"{label}：{part['name']}{suffix}")
+            if build.get("code"):
+                lines.append(f"配装码：{build['code']}")
+            if build.get("comment"):
+                lines.append(f"备注：{build['comment']}")
+        return "\n".join(lines)
+
     async def _handle(self, event: AstrMessageEvent, forced_version: str | None = None) -> AsyncGenerator[MessageChain, None]:
         args = event.message_str.strip().split()
-        if args and args[0].lower().lstrip("/") in {"cod", "cod22", "cod21", "cod20", "cod19", "bf6", "wz2", "战地6"}:
+        if args and args[0].lower().lstrip("/") in {
+            "cod", "cod22", "cod21", "cod20", "cod19", "cod23",
+            "bf6", "wz2", "wz3", "dmz", "战地6",
+        }:
             args = args[1:]
         if args and args[0].lower() in self.UNSUPPORTED:
             yield event.plain_result("该版本/模式目前尚未接入 MeetYourMeta API，暂不支持查询。")
             return
-        version = forced_version or self.DEFAULT_VERSION
+        version = forced_version or str(self.config.get("default_version", self.DEFAULT_VERSION))
+        default_mode = "MULTIPLAY"
+        if version == "bf6_redsec":
+            version, default_mode = "bf6", "REDSEC"
         if forced_version is None and args and (mapped := self._version(args[0])):
             version = mapped
             args = args[1:]
-        mode = "MULTIPLAY"
+            default_mode = "MULTIPLAY"
+        mode = default_mode
         if version == "bf6" and args and args[0].lower() in {"redsec", "大逃杀", "吃鸡"}:
             mode = "REDSEC"
             args = args[1:]
@@ -188,13 +252,26 @@ class CodMetaPlugin(Star):
                     text = text.replace("【战地6 ·", f"【战地6 {mode_label} ·", 1)
             elif tier in {"榜单", "总榜", "梯队", "强度榜"}:
                 data = await self._fetch(version, mode)
-                tier_keys = sorted((key for key, val in data.items()
-                                    if re.fullmatch(r"t\d+(?:\.\d+)?", key) and isinstance(val, list)),
-                                   key=lambda key: float(key[1:]))
-                text = "【" + self.VERSION_NAMES[version] + " 梯队武器】\n" + "\n".join(
-                    f"{key.upper()}：" + "、".join(item.get("name", "") for item in data[key])
-                    for key in tier_keys
-                )
+                if version in {"19", "cod23", "wz3", "dmz"}:
+                    by_tier: dict[str, list[str]] = {}
+                    for item in data.get("list", []):
+                        key = str(item.get("rankStr") or "").lower()
+                        name = item.get("name")
+                        if key and name:
+                            by_tier.setdefault(key, []).append(name)
+                    tier_keys = sorted(by_tier, key=lambda key: float(key[1:]))
+                    rows = [f"{key.upper()}：" + "、".join(dict.fromkeys(by_tier[key]))
+                            for key in tier_keys]
+                else:
+                    tier_keys = sorted((key for key, val in data.items()
+                                        if re.fullmatch(r"t\d+(?:\.\d+)?", key) and isinstance(val, list)),
+                                       key=lambda key: float(key[1:]))
+                    rows = [f"{key.upper()}：" + "、".join(
+                        item.get("name", "") for item in data[key] if item.get("name"))
+                        for key in tier_keys]
+                if not rows:
+                    raise ValueError(f"【{self.VERSION_NAMES[version]}】没有可用的梯队数据。")
+                text = f"【{self.VERSION_NAMES[version]} 梯队武器】\n" + "\n".join(rows)
             else:
                 gun = " ".join(args)
                 text = await self._gun_text(version, gun, mode)
@@ -243,4 +320,19 @@ class CodMetaPlugin(Star):
     @filter.command("wz2")
     async def wz2(self, event: AstrMessageEvent) -> AsyncGenerator[MessageChain, None]:
         async for result in self._handle(event, "wz2"):
+            yield result
+
+    @filter.command("cod23")
+    async def cod23(self, event: AstrMessageEvent) -> AsyncGenerator[MessageChain, None]:
+        async for result in self._handle(event, "cod23"):
+            yield result
+
+    @filter.command("dmz")
+    async def dmz(self, event: AstrMessageEvent) -> AsyncGenerator[MessageChain, None]:
+        async for result in self._handle(event, "dmz"):
+            yield result
+
+    @filter.command("wz3")
+    async def wz3(self, event: AstrMessageEvent) -> AsyncGenerator[MessageChain, None]:
+        async for result in self._handle(event, "wz3"):
             yield result

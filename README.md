@@ -1,4 +1,6 @@
-# COD 各代配枪与梯队查询（AstrBot）
+# 使命召唤 & 战地 配枪与梯队榜查询插件（astrbot_plugin_cod_meta）
+
+> 适配游戏：使命召唤（Call of Duty / COD，包括黑色行动7、黑色行动6、现代战争III、现代战争II、现代战争4、战区2、战区3、DMZ）及战地6（BF6）。
 
 本插件从 [MeetYourMeta](https://meetyourmeta.com) 获取武器梯队与配装数据。网站作者：[SoraYjy 的 Bilibili 个人空间](https://space.bilibili.com/19091214)。
 
@@ -14,15 +16,18 @@
 
 | 命令版本 | 游戏版本 | API 状态 |
 | --- | --- | --- |
-| `cod22` / `bo7` / `22` | 黑色行动7（BO7） | 已接入 |
-| `cod21` / `bo6` / `21` | 黑色行动6（BO6） | 已接入 |
-| `cod20` / `mwiii` / `mw3` / `20` | 现代战争III（MWIII） | 已接入 |
 | `cod19` / `mwii` / `mw2` / `19` | 现代战争II（MWII） | 已接入 |
-| `bf6` / `战地6` | 战地6本体（默认） | 已接入 |
+| `cod20` / `mwiii` / `mw3` / `20` | 现代战争III（MWIII） | 已接入 |
+| `cod21` / `bo6` / `21` | 黑色行动6（BO6） | 已接入 |
+| `cod22` / `bo7` / `22` | 黑色行动7（BO7） | 已接入 |
+| `cod23` / `mwiv` / `mw4` / `23` | 现代战争4（COD23，本体 MP） | 已接入 |
+| `bf6` / `战地6` | 战地6本体 | 已接入 |
 | `bf6 redsec` / `战地6 大逃杀` | 战地6 REDSEC | 已接入 |
 | `wz2` / `战区2` | 战区2 | 已接入 |
+| `wz3` / `战区3` | 战区3（WZ） | 已接入 |
+| `dmz` | DMZ 配装清单 | 已接入 |
 
-默认版本为 BO7。COD23、DMZ、战区3和三角洲目前尚未接入。
+默认版本为 COD23 本体（MP）。可在 AstrBot 插件配置中选择 `/cod` 的默认版本：COD19、COD20、COD21、COD22、COD23 本体、战地6本体、战地6 REDSEC、WZ2、WZ3 和 DMZ 均为独立选项。
 
 ## 安装
 
@@ -45,12 +50,15 @@
 /cod bo7 t1
 /cod cod22 t0.5
 /cod 21 t2
+/cod 23 t0
 /战地6 t0
 /战地6 redsec t0
 /wz2 t0
+/wz3 t0
+/dmz t0
 ```
 
-梯队查询只返回对应梯队的武器名称。可用梯队以 API 当前返回的数据为准，例如 `t0`、`t0.5`、`t1`、`t1.5`、`t2`。
+梯队查询只返回对应梯队的武器名称。`t0` 是宽松榜单入口，会列出该版本实际存在的 T0、T0.5 和 T1 梯队；其他梯队参数按指定档位查询。可用梯队以 API 当前返回的数据为准，例如 `t0.5`、`t1`、`t1.5`、`t2`。
 
 ### 查询枪械配装
 
@@ -59,10 +67,15 @@
 /cod bo7 MXR-17
 /cod cod21 XM4
 /cod mwiii AMR9
+/cod23 奥里斯8.6
 /战地6 M123K
 /战地6 redsec 枪械名
 /wz2 ISO45
+/wz3 枪械名
+/dmz ISO45
 ```
+
+在 AstrBot WebUI 的插件设置中，可以通过“`/cod` 默认查询版本”下拉框选择 `/cod t0` 或 `/cod 枪名` 默认使用的游戏/模式。`/cod 23 ...`、`/cod23 ...`、`/wz2 ...`、`/wz3 ...` 和 `/dmz ...` 也可显式指定对应版本，不受默认值影响。
 
 枪械名称支持中文名或英文名的部分匹配。若同一名称匹配到多个条目，当前版本会返回第一个匹配项。结果包含已收录方案的配件、配装码和备注；没有配装数据时会返回提示。
 
@@ -89,6 +102,7 @@
 astrbot_plugin_cod_meta/
 ├── main.py
 ├── metadata.yaml
+├── _conf_schema.json
 ├── requirements.txt
 ├── .gitignore
 └── README.md

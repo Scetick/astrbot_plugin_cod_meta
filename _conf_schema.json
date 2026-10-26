@@ -1,0 +1,21 @@
+{
+  "default_version": {
+    "description": "/cod 默认查询版本",
+    "type": "string",
+    "default": "cod23",
+    "options": ["19", "20", "21", "22", "cod23", "bf6", "bf6_redsec", "wz2", "wz3", "dmz"],
+    "labels": [
+      "现代战争II（MWII）",
+      "现代战争III（MWIII）",
+      "黑色行动6（BO6）",
+      "黑色行动7（BO7）",
+      "现代战争4（COD23，本体 MP）",
+      "战地6 本体",
+      "战地6 REDSEC 大逃杀",
+      "战区2（WZ2）",
+      "战区3（WZ3）",
+      "DMZ"
+    ],
+    "hint": "仅决定不带版本参数的 /cod 默认查询目标；各模式/版本分别保存数据缓存。"
+  }
+}
