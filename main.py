@@ -15,7 +15,7 @@ from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.star import Context, Star, register
 
 
-@register("astrbot_plugin_cod_meta", "Scetick", "COD各代配枪与梯队榜查询", "1.6.1")
+@register("astrbot_plugin_cod_meta", "Scetick", "COD各代配枪与梯队榜查询", "1.6.2")
 class CodMetaPlugin(Star):
     CACHE_TTL_SECONDS = 6 * 60 * 60
     DEFAULT_VERSION = "cod23"
@@ -51,9 +51,9 @@ class CodMetaPlugin(Star):
         "19": "https://www.meetyourmeta.com/wzguides/v1/apis/mwii_gunsmith/list?page=1&size=1000",
         "bf6": "https://www.meetyourmeta.com/wzguides/v1/apis/bf6/gunsmith/weapon_list",
         "wz2": "https://www.meetyourmeta.com/wzguides/v1/apis/wz2_gunsmith/weapon_list",
-        "cod23": "https://www.meetyourmeta.com/wzguides/v1/apis/mw4/gunsmith/list?season=0&mode=MP&page=1&size=1000&likesDesc=true",
+        "cod23": "https://www.meetyourmeta.com/wzguides/v1/apis/mw4/gunsmith/list?season=0&mode=MP&page=1&size=20&sort=rank",
         "wz3": "https://www.meetyourmeta.com/wzguides/v1/apis/mw4/gunsmith/list?season=0&mode=WZ&page=1&size=1000&likesDesc=true",
-        "dmz": "https://www.meetyourmeta.com/wzguides/v1/apis/mw4/gunsmith/list?season=0&mode=DMZ&page=1&size=1000&likesDesc=true",
+        "dmz": "https://www.meetyourmeta.com/wzguides/v1/apis/mw4/gunsmith/list?season=0&mode=DMZ&page=1&size=20&sort=rank",
     }
     UNSUPPORTED = {"三角洲", "delta"}
 
@@ -65,6 +65,8 @@ class CodMetaPlugin(Star):
         self._cache_dir = Path("data/plugin_data/astrbot_plugin_cod_meta")
         self._user_defaults: dict[str, str] | None = None
         self._user_defaults_lock = asyncio.Lock()
+        self._user_gun_aliases: dict[str, dict[str, str]] | None = None
+        self._user_gun_aliases_lock = asyncio.Lock()
 
     @classmethod
     def _version(cls, token: str) -> str | None:
@@ -139,8 +141,90 @@ class CodMetaPlugin(Star):
             await self._save_user_defaults_locked()
         return True
 
+    async def _load_user_gun_aliases_locked(self) -> dict[str, dict[str, str]]:
+        if self._user_gun_aliases is not None:
+            return self._user_gun_aliases
+        path = self._cache_dir / "user_gun_aliases.json"
+        try:
+            raw = await asyncio.to_thread(path.read_text, encoding="utf-8")
+            parsed = json.loads(raw)
+            values = parsed.get("preferences", {}) if isinstance(parsed, dict) else {}
+            self._user_gun_aliases = {
+                str(scope): {
+                    str(alias).casefold(): str(target)
+                    for alias, target in aliases.items()
+                    if isinstance(alias, str) and isinstance(target, str) and target.strip()
+                }
+                for scope, aliases in values.items()
+                if isinstance(scope, str) and isinstance(aliases, dict)
+            } if isinstance(values, dict) else {}
+        except (OSError, ValueError, TypeError):
+            self._user_gun_aliases = {}
+        return self._user_gun_aliases
+
+    async def _save_user_gun_aliases_locked(self) -> None:
+        path = self._cache_dir / "user_gun_aliases.json"
+        await asyncio.to_thread(self._cache_dir.mkdir, parents=True, exist_ok=True)
+        temp_path = path.with_suffix(".tmp")
+        payload = {"preferences": self._user_gun_aliases or {}}
+        await asyncio.to_thread(
+            temp_path.write_text,
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        await asyncio.to_thread(temp_path.replace, path)
+
+    async def _get_user_gun_alias(self, event: AstrMessageEvent, name: str) -> str | None:
+        scope = self._user_scope_key(event)
+        if scope is None:
+            return None
+        async with self._user_gun_aliases_lock:
+            aliases = await self._load_user_gun_aliases_locked()
+            return aliases.get(scope, {}).get(name.strip().casefold())
+
+    async def _set_user_gun_aliases(
+        self, event: AstrMessageEvent, aliases: list[str], target: str
+    ) -> bool:
+        scope = self._user_scope_key(event)
+        if scope is None:
+            return False
+        async with self._user_gun_aliases_lock:
+            preferences = await self._load_user_gun_aliases_locked()
+            user_aliases = preferences.setdefault(scope, {})
+            for alias in aliases:
+                user_aliases[alias.casefold()] = target.strip()
+            await self._save_user_gun_aliases_locked()
+        return True
+
+    async def _list_user_gun_aliases(self, event: AstrMessageEvent) -> dict[str, str] | None:
+        scope = self._user_scope_key(event)
+        if scope is None:
+            return None
+        async with self._user_gun_aliases_lock:
+            preferences = await self._load_user_gun_aliases_locked()
+            return dict(preferences.get(scope, {}))
+
+    async def _remove_user_gun_alias(
+        self, event: AstrMessageEvent, alias: str | None = None
+    ) -> bool:
+        scope = self._user_scope_key(event)
+        if scope is None:
+            return False
+        async with self._user_gun_aliases_lock:
+            preferences = await self._load_user_gun_aliases_locked()
+            if alias is None:
+                preferences.pop(scope, None)
+            else:
+                preferences.get(scope, {}).pop(alias.casefold(), None)
+            await self._save_user_gun_aliases_locked()
+        return True
+
     async def _fetch(self, version: str, mode: str = "MULTIPLAY") -> dict:
-        cache_key = f"{version}:{mode if version == 'bf6' else ''}"
+        # MW4 列表接口改用 rank 排序参数，避免读取旧接口格式留下的缓存。
+        if version in {"cod23", "dmz"}:
+            cache_key = f"{version}:api3"
+        else:
+            cache_key = f"{version}:{mode if version == 'bf6' else ''}"
         safe_key = cache_key.replace(":", "_")
         cache_path = self._cache_dir / f"{safe_key}.json"
         async with self._cache_lock:
@@ -164,8 +248,32 @@ class CodMetaPlugin(Star):
             if version == "bf6":
                 url += f"?mode={mode}"
 
+            if version in {"cod23", "wz3", "dmz"}:
+                api_mode = {"cod23": "MP", "wz3": "WZ", "dmz": "DMZ"}[version]
+                referer = (
+                    "https://meetyourmeta.com/mw4/loadouts"
+                    f"?season=0&mode={api_mode}"
+                )
+            elif version == "bf6":
+                referer = "https://meetyourmeta.com/bf6/weapons"
+            else:
+                referer = "https://meetyourmeta.com/"
+
             def get_json() -> dict:
-                request = Request(url, headers={"Accept": "application/json", "Referer": "https://meetyourmeta.com/"})
+                request = Request(
+                    url,
+                    headers={
+                        "Accept": "application/json, text/plain, */*",
+                        "Accept-Language": "zh-CN,zh;q=0.9",
+                        "User-Agent": (
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                            "AppleWebKit/537.36 (KHTML, like Gecko) "
+                            "Chrome/132.0.0.0 Safari/537.36"
+                        ),
+                        "Origin": "https://meetyourmeta.com",
+                        "Referer": referer,
+                    },
+                )
                 with urlopen(request, timeout=20) as response:
                     return json.loads(response.read().decode("utf-8"))
 
@@ -197,6 +305,13 @@ class CodMetaPlugin(Star):
     def _plain_name(value: str) -> str:
         return re.sub(r"<[^>]*>", "", value or "").strip()
 
+    @classmethod
+    def _attachment_count(cls, build: dict) -> int:
+        return sum(
+            1 for key in cls.PARTS
+            if isinstance(build.get(key), dict) and build[key].get("name")
+        )
+
     async def _tier_text(self, version: str, tier: str, mode: str = "MULTIPLAY") -> str:
         data = await self._fetch(version, mode)
         if tier.casefold() == "t0":
@@ -207,6 +322,9 @@ class CodMetaPlugin(Star):
                     name = item.get("name")
                     if rank.startswith("t") and rank[1:].replace(".", "", 1).isdigit():
                         if float(rank[1:]) <= 1 and name:
+                            if version == "dmz":
+                                count = self._attachment_count(item)
+                                name = f"{name}（{count}配件）"
                             ranked.setdefault(rank, []).append(name)
             else:
                 for key, weapons in data.items():
@@ -227,8 +345,15 @@ class CodMetaPlugin(Star):
                       if (build.get("rankStr") or "").casefold() == tier.casefold()]
             if not builds:
                 raise ValueError(f"【{self.VERSION_NAMES[version]}】没有 {tier.upper()} 梯队数据。")
+            names = []
+            for build in builds:
+                name = build.get("name", "")
+                if version == "dmz" and name:
+                    name = f"{name}（{self._attachment_count(build)}配件）"
+                if name:
+                    names.append(name)
             return f"【{self.VERSION_NAMES[version]} · {tier.upper()}】\n" + "、".join(
-                dict.fromkeys(build.get("name", "") for build in builds if build.get("name")))
+                dict.fromkeys(names))
         weapons = data.get(tier, [])
         if not weapons:
             raise ValueError(f"【{self.VERSION_NAMES[version]}】没有 {tier.upper()} 梯队数据。")
@@ -279,7 +404,13 @@ class CodMetaPlugin(Star):
         for index, build in enumerate(builds, 1):
             tier = build.get("rankStr")
             tier_text = f"{tier} · " if tier else ""
-            lines.append(f"\n方案{index}：{tier_text}{build.get('rangeStr', '')}")
+            attachment_text = (
+                f"（{self._attachment_count(build)}配件）" if version == "dmz" else ""
+            )
+            lines.append(
+                f"\n方案{index}：{tier_text}{build.get('rangeStr', '')}"
+                f"{attachment_text}"
+            )
             price = build.get("price")
             if version == "dmz" and price not in (None, ""):
                 lines.append(f"价格：{price}")
@@ -335,6 +466,8 @@ class CodMetaPlugin(Star):
                         key = str(item.get("rankStr") or "").lower()
                         name = item.get("name")
                         if key and name:
+                            if version == "dmz":
+                                name = f"{name}（{self._attachment_count(item)}配件）"
                             by_tier.setdefault(key, []).append(name)
                     tier_keys = sorted(by_tier, key=lambda key: float(key[1:]))
                     rows = [f"{key.upper()}：" + "、".join(dict.fromkeys(by_tier[key]))
@@ -351,6 +484,7 @@ class CodMetaPlugin(Star):
                 text = f"【{self.VERSION_NAMES[version]} 梯队武器】\n" + "\n".join(rows)
             else:
                 gun = " ".join(args)
+                gun = await self._get_user_gun_alias(event, gun) or gun
                 text = await self._gun_text(version, gun, mode)
             yield event.plain_result(f"{text}\n\n数据来源：MeetYourMeta")
         except ValueError as exc:
@@ -359,12 +493,37 @@ class CodMetaPlugin(Star):
             logger.exception("COD meta API query failed: %s", exc)
             yield event.plain_result(f"查询失败：API 请求异常（{type(exc).__name__}）。")
 
-    @filter.command("cod")
+    @filter.command(
+        "cod",
+        alias={
+            "cod19", "cod20", "cod21", "cod22", "cod23", "bf6", "wz2", "wz3",
+            "dmz", "战地6", "codhelp", "setcod", "setcodgun", "setcodname",
+        },
+    )
     async def cod(self, event: AstrMessageEvent) -> AsyncGenerator[MessageChain, None]:
-        async for result in self._handle(event):
+        tokens = event.message_str.strip().split()
+        command = tokens[0].lower().lstrip("/") if tokens else "cod"
+        if command == "codhelp":
+            async for result in self.codhelp(event):
+                yield result
+            return
+        if command == "setcod":
+            async for result in self.setcod(event):
+                yield result
+            return
+        if command in {"setcodgun", "setcodname"}:
+            async for result in self.setcodgun(event):
+                yield result
+            return
+
+        forced_versions = {
+            "cod19": "19", "cod20": "20", "cod21": "21", "cod22": "22",
+            "cod23": "cod23", "bf6": "bf6", "战地6": "bf6", "wz2": "wz2",
+            "wz3": "wz3", "dmz": "dmz",
+        }
+        async for result in self._handle(event, forced_versions.get(command)):
             yield result
 
-    @filter.command("codhelp")
     async def codhelp(self, event: AstrMessageEvent) -> AsyncGenerator[MessageChain, None]:
         yield event.plain_result(
             "【COD 配枪查询帮助】\n"
@@ -373,10 +532,85 @@ class CodMetaPlugin(Star):
             "/cod版本 梯队或枪名（例：/cod23 t0、/cod19 枪名）\n"
             "也可直接使用：/wz2、/wz3、/dmz、/bf6；战地6大逃杀：/战地6 redsec t0\n"
             "不写版本时使用个人默认版本；/cod t0 会列出 T0 至 T1 梯队。\n"
-            "设置个人默认：/setcod 版本；清除设置：/setcod reset"
+            "设置个人默认：/setcod 版本；清除设置：/setcod reset\n"
+            "设置枪械外号：/setcodname 外号 正式枪名（也可用 /setcodgun，多个外号用 / 分隔）；"
+            "例：/setcodname .57 点57阿塔罗斯；/setcodname list 查看；"
+            "/setcodname del 外号 删除；/setcodname reset 清空"
         )
 
-    @filter.command("setcod")
+    async def setcodgun(self, event: AstrMessageEvent) -> AsyncGenerator[MessageChain, None]:
+        raw = event.message_str.strip()
+        for prefix in ("/setcodgun", "setcodgun", "/setcodname", "setcodname"):
+            if raw.lower().startswith(prefix):
+                raw = raw[len(prefix):].strip()
+                break
+
+        if not raw:
+            yield event.plain_result(
+                "用法：/setcodname 外号 正式枪名（也可用 /setcodgun；"
+                "例：/setcodname .57 点57阿塔罗斯）；"
+                "多个外号用 / 分隔。/setcodname list 查看，/setcodname del 外号删除，"
+                "/setcodname reset 清空。"
+            )
+            return
+
+        action = raw.casefold()
+        try:
+            if action in {"list", "列表", "查看"}:
+                aliases = await self._list_user_gun_aliases(event)
+                if aliases is None:
+                    yield event.plain_result("无法读取发送者 QQ 号，不能读取个人外号表。")
+                elif not aliases:
+                    yield event.plain_result("当前会话还没有设置枪械外号。")
+                else:
+                    rows = [f"{alias} → {target}" for alias, target in sorted(aliases.items())]
+                    yield event.plain_result("【个人枪械外号】\n" + "\n".join(rows))
+                return
+
+            if action in {"reset", "重置", "清空", "清除"}:
+                saved = await self._remove_user_gun_alias(event)
+                yield event.plain_result(
+                    "已清空当前会话的个人枪械外号。" if saved
+                    else "无法读取发送者 QQ 号，未能清空个人外号表。"
+                )
+                return
+
+            if action.startswith("del ") or action.startswith("删除 "):
+                alias = raw.split(maxsplit=1)[1].strip()
+                if not alias:
+                    yield event.plain_result("请提供要删除的外号，例如：/setcodname del .57")
+                    return
+                saved = await self._remove_user_gun_alias(event, alias)
+                yield event.plain_result(
+                    f"已删除外号：{alias}" if saved else "无法读取发送者 QQ 号，未能删除外号。"
+                )
+                return
+
+            if "=" in raw:
+                alias_text, _, target = raw.partition("=")
+            else:
+                alias_text, separator, target = raw.partition(" ")
+                if not separator:
+                    target = ""
+            alias_names = [item.strip() for item in alias_text.split("/") if item.strip()]
+            target = target.strip()
+            if not alias_names or not target:
+                yield event.plain_result(
+                    "格式不正确。请使用：/setcodname 外号 正式枪名，"
+                    "例如 /setcodgun .57 点57阿塔罗斯。"
+                )
+                return
+            saved = await self._set_user_gun_aliases(event, alias_names, target)
+            if not saved:
+                yield event.plain_result("无法读取发送者 QQ 号，未能保存个人枪械外号。")
+                return
+            yield event.plain_result(
+                f"已设置枪械外号：{'、'.join(alias_names)} → {target}。"
+            )
+        except OSError:
+            logger.exception("Failed to save personal COD gun aliases")
+            yield event.plain_result("保存外号失败，请检查 AstrBot 数据目录的写入权限。")
+
     async def setcod(self, event: AstrMessageEvent) -> AsyncGenerator[MessageChain, None]:
         args = event.message_str.strip().split()
         if args and args[0].lower().lstrip("/") == "setcod":
@@ -429,53 +663,3 @@ class CodMetaPlugin(Star):
         yield event.plain_result(
             f"已为{scope}设置默认版本：{self.VERSION_NAMES[version]}。"
         )
-
-    @filter.command("cod22")
-    async def cod22(self, event: AstrMessageEvent) -> AsyncGenerator[MessageChain, None]:
-        async for result in self._handle(event, "22"):
-            yield result
-
-    @filter.command("cod21")
-    async def cod21(self, event: AstrMessageEvent) -> AsyncGenerator[MessageChain, None]:
-        async for result in self._handle(event, "21"):
-            yield result
-
-    @filter.command("cod20")
-    async def cod20(self, event: AstrMessageEvent) -> AsyncGenerator[MessageChain, None]:
-        async for result in self._handle(event, "20"):
-            yield result
-
-    @filter.command("cod19")
-    async def cod19(self, event: AstrMessageEvent) -> AsyncGenerator[MessageChain, None]:
-        async for result in self._handle(event, "19"):
-            yield result
-
-    @filter.command("bf6")
-    async def bf6(self, event: AstrMessageEvent) -> AsyncGenerator[MessageChain, None]:
-        async for result in self._handle(event, "bf6"):
-            yield result
-
-    @filter.command("战地6")
-    async def battlefield6(self, event: AstrMessageEvent) -> AsyncGenerator[MessageChain, None]:
-        async for result in self._handle(event, "bf6"):
-            yield result
-
-    @filter.command("wz2")
-    async def wz2(self, event: AstrMessageEvent) -> AsyncGenerator[MessageChain, None]:
-        async for result in self._handle(event, "wz2"):
-            yield result
-
-    @filter.command("cod23")
-    async def cod23(self, event: AstrMessageEvent) -> AsyncGenerator[MessageChain, None]:
-        async for result in self._handle(event, "cod23"):
-            yield result
-
-    @filter.command("dmz")
-    async def dmz(self, event: AstrMessageEvent) -> AsyncGenerator[MessageChain, None]:
-        async for result in self._handle(event, "dmz"):
-            yield result
-
-    @filter.command("wz3")
-    async def wz3(self, event: AstrMessageEvent) -> AsyncGenerator[MessageChain, None]:
-        async for result in self._handle(event, "wz3"):
-            yield result
