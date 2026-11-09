@@ -15,7 +15,7 @@ from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.star import Context, Star, register
 
 
-@register("astrbot_plugin_cod_meta", "Scetick", "COD各代配枪与梯队榜查询", "1.6.2")
+@register("astrbot_plugin_cod_meta", "Scetick", "COD各代配枪与梯队榜查询", "1.6.4")
 class CodMetaPlugin(Star):
     CACHE_TTL_SECONDS = 6 * 60 * 60
     DEFAULT_VERSION = "cod23"
@@ -51,9 +51,9 @@ class CodMetaPlugin(Star):
         "19": "https://www.meetyourmeta.com/wzguides/v1/apis/mwii_gunsmith/list?page=1&size=1000",
         "bf6": "https://www.meetyourmeta.com/wzguides/v1/apis/bf6/gunsmith/weapon_list",
         "wz2": "https://www.meetyourmeta.com/wzguides/v1/apis/wz2_gunsmith/weapon_list",
-        "cod23": "https://www.meetyourmeta.com/wzguides/v1/apis/mw4/gunsmith/list?season=0&mode=MP&page=1&size=20&sort=rank",
-        "wz3": "https://www.meetyourmeta.com/wzguides/v1/apis/mw4/gunsmith/list?season=0&mode=WZ&page=1&size=1000&likesDesc=true",
-        "dmz": "https://www.meetyourmeta.com/wzguides/v1/apis/mw4/gunsmith/list?season=0&mode=DMZ&page=1&size=20&sort=rank",
+        "cod23": "https://www.meetyourmeta.com/wzguides/v1/apis/mw4/gunsmith/list?season=1&mode=MP&page=1&size=20&sort=rank",
+        "wz3": "https://www.meetyourmeta.com/wzguides/v1/apis/mw4/gunsmith/list?season=1&mode=WZ&page=1&size=20&sort=rank",
+        "dmz": "https://www.meetyourmeta.com/wzguides/v1/apis/mw4/gunsmith/list?season=1&mode=DMZ&page=1&size=20&sort=rank",
     }
     UNSUPPORTED = {"三角洲", "delta"}
 
@@ -221,8 +221,8 @@ class CodMetaPlugin(Star):
 
     async def _fetch(self, version: str, mode: str = "MULTIPLAY") -> dict:
         # MW4 列表接口改用 rank 排序参数，避免读取旧接口格式留下的缓存。
-        if version in {"cod23", "dmz"}:
-            cache_key = f"{version}:api3"
+        if version in {"cod23", "wz3", "dmz"}:
+            cache_key = f"{version}:api4"
         else:
             cache_key = f"{version}:{mode if version == 'bf6' else ''}"
         safe_key = cache_key.replace(":", "_")
@@ -252,7 +252,7 @@ class CodMetaPlugin(Star):
                 api_mode = {"cod23": "MP", "wz3": "WZ", "dmz": "DMZ"}[version]
                 referer = (
                     "https://meetyourmeta.com/mw4/loadouts"
-                    f"?season=0&mode={api_mode}"
+                    f"?season=1&mode={api_mode}"
                 )
             elif version == "bf6":
                 referer = "https://meetyourmeta.com/bf6/weapons"
