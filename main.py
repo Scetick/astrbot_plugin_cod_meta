@@ -15,14 +15,14 @@ from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.star import Context, Star, register
 
 
-@register("astrbot_plugin_cod_meta", "Scetick", "COD各代配枪与梯队榜查询", "1.6.4")
+@register("astrbot_plugin_cod_meta", "Scetick", "COD各代配枪与梯队榜查询", "1.6.5")
 class CodMetaPlugin(Star):
     CACHE_TTL_SECONDS = 6 * 60 * 60
     DEFAULT_VERSION = "cod23"
     VERSION_NAMES = {
         "22": "黑色行动7",
         "21": "黑色行动6", "20": "现代战争III",
-        "19": "现代战争II", "bf6": "战地6", "wz2": "战区2",
+        "19": "现代战争II", "bf6": "战地6",
         "bf6_redsec": "战地6 REDSEC",
         "cod23": "现代战争4", "wz3": "战区3",
         "dmz": "DMZ",
@@ -31,9 +31,9 @@ class CodMetaPlugin(Star):
         "cod22": "22", "bo7": "22", "cod21": "21", "bo6": "21",
         "cod20": "20", "mwiii": "20", "mw3": "20",
         "cod19": "19", "mwii": "19", "mw2": "19", "战地6": "bf6",
-        "战地": "bf6", "bf6": "bf6", "wz2": "wz2", "战区2": "wz2",
+        "战地": "bf6", "bf6": "bf6",
         "cod23": "cod23", "23": "cod23", "mw4": "cod23", "mwiv": "cod23",
-        "wz3": "wz3", "战区3": "wz3", "dmz": "dmz",
+        "wz": "wz3", "wz3": "wz3", "战区3": "wz3", "dmz": "dmz",
         "bf6_redsec": "bf6_redsec",
     }
     TIERS = {f"t{i}" for i in range(5)} | {"t0.5", "t1.5", "t2.5", "t3.5"}
@@ -50,7 +50,6 @@ class CodMetaPlugin(Star):
         "20": "https://www.meetyourmeta.com/wzguides/v1/apis/mwiii_gunsmith/weapon_list",
         "19": "https://www.meetyourmeta.com/wzguides/v1/apis/mwii_gunsmith/list?page=1&size=1000",
         "bf6": "https://www.meetyourmeta.com/wzguides/v1/apis/bf6/gunsmith/weapon_list",
-        "wz2": "https://www.meetyourmeta.com/wzguides/v1/apis/wz2_gunsmith/weapon_list",
         "cod23": "https://www.meetyourmeta.com/wzguides/v1/apis/mw4/gunsmith/list?season=1&mode=MP&page=1&size=20&sort=rank",
         "wz3": "https://www.meetyourmeta.com/wzguides/v1/apis/mw4/gunsmith/list?season=1&mode=WZ&page=1&size=20&sort=rank",
         "dmz": "https://www.meetyourmeta.com/wzguides/v1/apis/mw4/gunsmith/list?season=1&mode=DMZ&page=1&size=20&sort=rank",
@@ -429,7 +428,7 @@ class CodMetaPlugin(Star):
         args = event.message_str.strip().split()
         if args and args[0].lower().lstrip("/") in {
             "cod", "cod22", "cod21", "cod20", "cod19", "cod23",
-            "bf6", "wz2", "wz3", "dmz", "战地6",
+            "bf6", "wz", "wz3", "dmz", "战地6",
         }:
             args = args[1:]
         if args and args[0].lower() in self.UNSUPPORTED:
@@ -496,8 +495,8 @@ class CodMetaPlugin(Star):
     @filter.command(
         "cod",
         alias={
-            "cod19", "cod20", "cod21", "cod22", "cod23", "bf6", "wz2", "wz3",
-            "dmz", "战地6", "codhelp", "setcod", "setcodgun", "setcodname",
+            "cod19", "cod20", "cod21", "cod22", "cod23", "bf6", "wz3",
+            "dmz", "wz", "战地6", "codhelp", "setcod", "setcodgun", "setcodname",
         },
     )
     async def cod(self, event: AstrMessageEvent) -> AsyncGenerator[MessageChain, None]:
@@ -518,8 +517,8 @@ class CodMetaPlugin(Star):
 
         forced_versions = {
             "cod19": "19", "cod20": "20", "cod21": "21", "cod22": "22",
-            "cod23": "cod23", "bf6": "bf6", "战地6": "bf6", "wz2": "wz2",
-            "wz3": "wz3", "dmz": "dmz",
+            "cod23": "cod23", "bf6": "bf6", "战地6": "bf6",
+            "wz": "wz3", "wz3": "wz3", "dmz": "dmz",
         }
         async for result in self._handle(event, forced_versions.get(command)):
             yield result
@@ -530,7 +529,8 @@ class CodMetaPlugin(Star):
             "查询格式：\n"
             "/cod 版本 梯队或枪名（例：/cod 23 t0、/cod dmz X-58夜神）\n"
             "/cod版本 梯队或枪名（例：/cod23 t0、/cod19 枪名）\n"
-            "也可直接使用：/wz2、/wz3、/dmz、/bf6；战地6大逃杀：/战地6 redsec t0\n"
+            "也可直接使用：/wz（战区/WZ）、/wz3、/dmz、/bf6；"
+            "战地6大逃杀：/战地6 redsec t0\n"
             "不写版本时使用个人默认版本；/cod t0 会列出 T0 至 T1 梯队。\n"
             "设置个人默认：/setcod 版本；清除设置：/setcod reset\n"
             "设置枪械外号：/setcodname 外号 正式枪名（也可用 /setcodgun，多个外号用 / 分隔）；"
@@ -646,7 +646,7 @@ class CodMetaPlugin(Star):
 
         if version not in self.VERSION_NAMES:
             yield event.plain_result(
-                "无法识别版本。可选：COD19、COD20、COD21、COD22、COD23、WZ2、WZ3、DMZ、"
+                "无法识别版本。可选：COD19、COD20、COD21、COD22、COD23、WZ、WZ3、DMZ、"
                 "BF6（或 BF6 REDSEC）。"
             )
             return

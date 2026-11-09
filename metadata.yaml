@@ -1,8 +1,8 @@
 name: astrbot_plugin_cod_meta
 display_name: 使命召唤（COD）与战地6 配枪和梯队榜查询
-short_desc: 查询使命召唤（Call of Duty / COD）、战地6的武器梯队、枪械配装，并支持个人枪械外号。
-desc: 查询使命召唤（Call of Duty，简称 COD）各代、战区2、战区3、DMZ及战地6的武器梯队、枪械配件方案和配装码。支持为枪械设置个人外号，查询时自动匹配正式名称。当前支持 COD19 至 COD23、WZ2、WZ3、DMZ、BF6（含 REDSEC），数据来源于 MeetYourMeta。
-version: 1.6.4
+short_desc: 查询使命召唤（Call of Duty / COD）、战区、战地6的武器梯队和枪械配装，支持个人枪械外号。
+desc: 查询使命召唤（Call of Duty，简称 COD）各代、战区（WZ）、DMZ及战地6的武器梯队、枪械配件方案和配装码。支持为枪械设置个人外号，查询时自动匹配正式名称。当前支持 COD19 至 COD23、WZ、DMZ、BF6（含 REDSEC），数据来源于 MeetYourMeta。
+version: 1.6.5
 author: Scetick
 repo: "https://github.com/Scetick/astrbot_plugin_cod_meta"
 tags:
@@ -13,5 +13,4 @@ tags:
   - 配装
   - 梯队榜
   - 战地6
-  - 战区2
-  - 战区3
+  - 战区
